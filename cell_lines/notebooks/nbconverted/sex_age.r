@@ -88,6 +88,9 @@ panel_sex <- panel_sex +
         legend.position = "none", plot.margin = margin(10, 2, 8, 10))
 
 age_cl <- cl %>% filter(!is.na(age))
+# cell lines older than the axis are drawn as a triangle at its right edge, labelled ">24 (54 y)"
+age_in <- age_cl %>% filter(age <= age_max)
+age_over <- age_cl %>% filter(age > age_max)
 age_scale <- scale_x_continuous(limits = c(0, age_max), breaks = seq(0, age_max, by = 4), minor_breaks = seq(0, age_max, by = 2),
                                 expand = expansion(mult = c(0.01, 0)))
 
@@ -99,10 +102,13 @@ medians <- age_cl %>%
   mutate(label = ifelse(cancer_group == first_group, sprintf("median age = %g y", round(med, 1)), sprintf("%g y", round(med, 1))),
          hjust = ifelse(med < 6, 0, ifelse(med > 18, 1, 0.5)))
 
-panel_age <- ggplot(age_cl, aes(age, cancer_group)) +
+panel_age <- ggplot(age_in, aes(age, cancer_group)) +
   geom_blank(data = group_rows, aes(y = cancer_group), inherit.aes = FALSE) +
   geom_point(aes(colour = site), size = 3.6, alpha = 0.9, position = position_jitter(width = 0, height = 0.2, seed = 1)) +
-  stat_summary(fun = median, geom = "point", shape = 124, size = 8, colour = "black") +
+  geom_point(data = medians, aes(med, cancer_group), shape = 124, size = 8, colour = "black", inherit.aes = FALSE) +
+  geom_point(data = age_over, aes(age_max - 0.5, cancer_group, colour = site), shape = 17, size = 3.6, inherit.aes = FALSE) +
+  geom_text(data = age_over, aes(age_max - 1.1, cancer_group, label = sprintf(">%g (%g y)", age_max, age)), hjust = 1, size = 4.4,
+            fontface = "bold", colour = "grey10", inherit.aes = FALSE) +
   geom_text(data = medians, aes(med, cancer_group, label = label, hjust = hjust), nudge_y = 0.3, vjust = 0, size = 4.4,
             fontface = "bold", colour = "grey10", inherit.aes = FALSE) +
   facet_grid(site ~ ., scales = "free_y", space = "free_y", switch = "y") +   # same strip side as the sex panel keeps the x axes aligned
@@ -116,11 +122,13 @@ panel_age <- ggplot(age_cl, aes(age, cancer_group)) +
         plot.margin = margin(10, 12, 8, 2))
 
 # histogram of all cell lines with a known age: 1-year bins, one colour
-bins <- age_cl %>% mutate(bin = floor(age)) %>% count(bin)
+bins <- age_in %>% mutate(bin = floor(age)) %>% count(bin)
 panel_hist <- ggplot(bins, aes(bin + 0.5, n)) +
   geom_col(width = 1, fill = "grey35", colour = "white", linewidth = 0.4) +
   annotate("text", x = age_max - 0.3, y = Inf, hjust = 1, vjust = 1.5, size = 5, fontface = "bold",
-           label = sprintf("Unknown age: %d of %d", n_unknown_age, n_total)) +
+           label = paste0(sprintf("Unknown age: %d of %d", n_unknown_age, n_total),
+                          if (nrow(age_over) > 0) sprintf("\n%d cell line%s >%g (%s y)", nrow(age_over), ifelse(nrow(age_over) > 1, "s", ""),
+                                                          age_max, paste(age_over$age, collapse = ", ")) else "")) +
   age_scale +
   scale_y_continuous(breaks = seq(0, 10, by = 2), minor_breaks = seq(0, 10, by = 1), expand = expansion(mult = c(0, 0.15))) +
   labs(x = "Age (years)", y = NULL) +
