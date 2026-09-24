@@ -88,7 +88,7 @@ panel_sex <- panel_sex +
         legend.position = "none", plot.margin = margin(10, 2, 8, 10))
 
 age_cl <- cl %>% filter(!is.na(age))
-# cell lines older than the axis are drawn as a triangle at its right edge, labelled ">24 (54 y)"
+# cell lines older than the axis are drawn as a circle at its right edge, labelled ">24 (54 y)" (and left out of the histogram)
 age_in <- age_cl %>% filter(age <= age_max)
 age_over <- age_cl %>% filter(age > age_max)
 age_scale <- scale_x_continuous(limits = c(0, age_max), breaks = seq(0, age_max, by = 4), minor_breaks = seq(0, age_max, by = 2),
@@ -106,7 +106,7 @@ panel_age <- ggplot(age_in, aes(age, cancer_group)) +
   geom_blank(data = group_rows, aes(y = cancer_group), inherit.aes = FALSE) +
   geom_point(aes(colour = site), size = 3.6, alpha = 0.9, position = position_jitter(width = 0, height = 0.2, seed = 1)) +
   geom_point(data = medians, aes(med, cancer_group), shape = 124, size = 8, colour = "black", inherit.aes = FALSE) +
-  geom_point(data = age_over, aes(age_max - 0.5, cancer_group, colour = site), shape = 17, size = 3.6, inherit.aes = FALSE) +
+  geom_point(data = age_over, aes(age_max - 0.5, cancer_group, colour = site), size = 3.6, alpha = 0.9, inherit.aes = FALSE) +
   geom_text(data = age_over, aes(age_max - 1.1, cancer_group, label = sprintf(">%g (%g y)", age_max, age)), hjust = 1, size = 4.4,
             fontface = "bold", colour = "grey10", inherit.aes = FALSE) +
   geom_text(data = medians, aes(med, cancer_group, label = label, hjust = hjust), nudge_y = 0.3, vjust = 0, size = 4.4,
@@ -123,14 +123,16 @@ panel_age <- ggplot(age_in, aes(age, cancer_group)) +
 
 # histogram of all cell lines with a known age: 1-year bins, one colour
 bins <- age_in %>% mutate(bin = floor(age)) %>% count(bin)
+overall_median <- median(age_cl$age)   # all cell lines with a known age (the normal reference lines included)
 panel_hist <- ggplot(bins, aes(bin + 0.5, n)) +
   geom_col(width = 1, fill = "grey35", colour = "white", linewidth = 0.4) +
-  annotate("text", x = age_max - 0.3, y = Inf, hjust = 1, vjust = 1.5, size = 5, fontface = "bold",
-           label = paste0(sprintf("Unknown age: %d of %d", n_unknown_age, n_total),
-                          if (nrow(age_over) > 0) sprintf("\n%d cell line%s >%g (%s y)", nrow(age_over), ifelse(nrow(age_over) > 1, "s", ""),
-                                                          age_max, paste(age_over$age, collapse = ", ")) else "")) +
+  geom_vline(xintercept = overall_median, colour = "red", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = overall_median + 0.4, y = Inf, hjust = 0, vjust = 1.5, size = 4.4, fontface = "bold", colour = "red3",
+           label = sprintf("median age = %g y", round(overall_median, 1))) +
+  annotate("text", x = age_max - 0.3, y = Inf, hjust = 1, vjust = 1.5, size = 4.4, fontface = "bold",
+           label = sprintf("Unknown age: %d of %d", n_unknown_age, n_total)) +
   age_scale +
-  scale_y_continuous(breaks = seq(0, 10, by = 2), minor_breaks = seq(0, 10, by = 1), expand = expansion(mult = c(0, 0.15))) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2), minor_breaks = seq(0, 10, by = 1), expand = expansion(mult = c(0, 0.32))) +   # headroom for the labels above the bars
   labs(x = "Age (years)", y = NULL) +
   theme_panel(base_size) +
   theme(panel.grid.major.x = element_line(colour = "grey82", linewidth = 0.45),
