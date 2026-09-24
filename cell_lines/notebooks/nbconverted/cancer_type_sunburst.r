@@ -181,41 +181,13 @@ margin_pt <- 4
 fig_width <- diff(x_lim) / upi + 2 * margin_pt / 72
 fig_height <- diff(y_lim) / upi + 2 * margin_pt / 72
 
-# ---- depth: looking straight down into a cylinder, with the light directly overhead ----
-# The rings are terraces stepping down toward the centre, so each ring's inner wall casts a soft shadow inward, onto the
-# next ring down (ring 1 onto the ring gap around the floor with PCCMA). ggplot2 has no blur, so the shadow is several faint strips of
-# increasing width, darkest at the wall. Each ring's shadow is drawn after the ring inside it.
-shadow_depth <- 0.5    # plot units the shadow reaches in from the wall of a ring
-shadow_layers <- 8
-shadow_alpha <- 0.017
-sector_polygon <- function(id, r0, r1, start, end, dx = 0, dy = 0, grow = 0) {
-  r0g <- max(r0 - grow, 0.05); r1g <- r1 + grow
-  pad <- grow / ((r0 + r1) / 2) * 180 / pi
-  a <- seq(start - pad, end + pad, length.out = max(2, ceiling((end - start + 2 * pad) / 2)) + 1) * pi / 180
-  tibble(id = id, x = dx + c(r1g * sin(a), r0g * sin(rev(a))), y = dy + c(r1g * cos(a), r0g * cos(rev(a))))
-}
-soft_shadow <- function(sectors, depth = shadow_depth) {
-  lapply(seq_len(shadow_layers), function(j) {
-    t <- depth * j / shadow_layers
-    poly <- bind_rows(lapply(seq_len(nrow(sectors)), function(i)
-      sector_polygon(i, max(sectors$r0[i] - t, 0.05), sectors$r0[i], sectors$start[i], sectors$end[i])))
-    geom_polygon(data = poly, aes(x, y, group = id), fill = "black", alpha = shadow_alpha, colour = NA, inherit.aes = FALSE)
-  })
-}
-ring_sectors <- wedges %>%
-  group_by(ring, site) %>%
-  summarise(start = min(start), end = max(end), r0 = first(r0), r1 = first(r1), .groups = "drop")
-band_sectors <- sites %>% transmute(start, end, r0 = band_r0, r1 = band_r1)
-poly_data <- poly_data %>% mutate(ring = wedges$ring[match(id, wedges$id)])
-
 panel <- ggplot()
 for (k in 1:4) {
   panel <- panel +
-    soft_shadow(ring_sectors %>% filter(ring == k)) +
-    geom_polygon(data = poly_data %>% filter(ring == k), aes(x, y, group = id, fill = fill), colour = "white", linewidth = 0.35)
+    geom_polygon(data = poly_data %>% filter(id %in% wedges$id[wedges$ring == k]), aes(x, y, group = id, fill = fill),
+                 colour = "white", linewidth = 0.35)
 }
 panel <- panel +
-  soft_shadow(band_sectors) +
   geom_polygon(data = band_poly, aes(x, y, group = id, fill = fill), colour = "white", linewidth = 0.35) +
   scale_fill_identity() +
   geom_text(data = origin_labels, aes(x, y, label = label, angle = angle, colour = colour), size = 2.5, fontface = "bold") +
