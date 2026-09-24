@@ -7,6 +7,61 @@ categories_file <- file.path("..", "plotting_helpers", "cancer_type_categories.y
 output_dir <- "figures"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
+# one table of wedges per ring: a wedge for each combination of the grouping columns of ring k, laid out around the circle
+# in proportion to the number of cell lines, with a gap of site_gap degrees between tissue sites
+ring_table <- function(k, data, group_keys, sort_keys, site_order, site_gap, n_total) {
+  data %>%
+    group_by(across(all_of(group_keys[[k]]))) %>%
+    summarise(w = sum(weight), .groups = "drop") %>%
+    arrange(across(all_of(sort_keys[[k]]))) %>%
+    mutate(ring = k, span = 360 - site_gap * length(site_order),
+           start = (as.integer(site) - 0.5) * site_gap + span * (cumsum(w) - w) / n_total,
+           end = start + span * w / n_total, mid = (start + end) / 2)
+}
+
+# text colour that stays readable on a given fill
+text_on <- function(fill) ifelse(colSums(col2rgb(fill) * c(0.299, 0.587, 0.114)) / 255 < 0.55, "white", "grey15")
+radial <- function(df) {
+  df %>%
+    mutate(r = (r0 + r1) / 2, x = r * sin(mid * pi / 180), y = r * cos(mid * pi / 180),
+           angle = { phi <- ((90 - mid + 180) %% 360) - 180; ifelse(abs(phi) > 90, phi + 180, phi) },
+           colour = text_on(fill))
+}
+
+# ---- text measurement (approximate Helvetica character widths in em) ----
+upi <- 1.75   # plot units per inch: sets the text size relative to the rings
+em_widths <- setNames(c(556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278,
+                        556, 500, 722, 500, 500, 500,
+                        667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611,
+                        722, 667, 944, 667, 667, 611, 278, 333, 333, 584) / 1000,
+                      c(letters, LETTERS, " ", "(", ")", "="))
+char_em <- function(ch) { w <- unname(em_widths[ch]); w[is.na(w)] <- 0.556; w }   # digits and others: 0.556 em
+em_units <- function(size_mm) size_mm * 2.845 / 72 * upi                           # one em in plot units
+text_units <- function(label, size_mm, bold = FALSE) {                              # width of the longest line
+  max(sapply(strsplit(label, "\n")[[1]], function(l) sum(char_em(strsplit(l, "")[[1]])))) *
+    (if (bold) 1.06 else 1) * em_units(size_mm)
+}
+
+# text along a circle of radius r, centred on angle `mid` (degrees clockwise from 12 o'clock); in the bottom half
+# the text runs against the clock so that it stays upright
+curved_text <- function(label, r, mid = 0, size_mm = 3.9, bold = TRUE) {
+  chars <- strsplit(label, "")[[1]]
+  em <- em_units(size_mm)
+  w <- char_em(chars) * (if (bold) 1.06 else 1) * em
+  offset <- cumsum(w) - w / 2 - sum(w) / 2       # distance of each character's centre from the middle of the text
+  flip <- cos(mid * pi / 180) < 0
+  theta <- mid + (if (flip) -offset else offset) / r * 180 / pi
+  r_base <- if (flip) r + 0.36 * em else r - 0.36 * em   # baseline radius, so capital letters are centred on r
+  data.frame(char = chars, x = r_base * sin(theta * pi / 180), y = r_base * cos(theta * pi / 180),
+             angle = if (flip) 180 - theta else -theta)
+}
+
+# polygon of an annular sector (a wedge of a ring)
+arc_polygon <- function(id, r0, r1, start, end, fill) {
+  a <- seq(start, end, length.out = max(2, ceiling((end - start) / 2)) + 1) * pi / 180
+  tibble(id = id, fill = fill, x = c(r1 * sin(a), r0 * sin(rev(a))), y = c(r1 * cos(a), r0 * cos(rev(a))))
+}
+
 atlas <- prepare_cancer_type_data(metadata_file, categories_file)
 site_order <- atlas$site_counts$site
 plate_levels <- names(plate_colors)
@@ -43,16 +98,8 @@ group_keys <- list("site", c("site", "origin"), c("site", "origin", "subtype", "
 sort_keys <- list("site", c("site", "origin"), c("site", "origin", "subtype_rank"),
                   c("site", "origin", "subtype_rank", "plate"))
 site_gap <- 2.6   # degrees of white space between tissue sites
-ring_table <- function(k) {
-  rows %>%
-    group_by(across(all_of(group_keys[[k]]))) %>%
-    summarise(w = sum(weight), .groups = "drop") %>%
-    arrange(across(all_of(sort_keys[[k]]))) %>%
-    mutate(ring = k, span = 360 - site_gap * length(site_order),
-           start = (as.integer(site) - 0.5) * site_gap + span * (cumsum(w) - w) / n_cell_lines,
-           end = start + span * w / n_cell_lines, mid = (start + end) / 2)
-}
-rings <- lapply(1:4, ring_table)
+rings <- lapply(1:4, ring_table, data = rows, group_keys = group_keys, sort_keys = sort_keys,
+                site_order = site_order, site_gap = site_gap, n_total = n_cell_lines)
 cat("cell lines:", n_cell_lines, "| wedges per ring:", paste(sapply(rings, nrow), collapse = ", "), "\n")
 print(as.data.frame(rings[[3]] %>% filter(subtype != "Unknown") %>% select(site, origin, subtype, w)), row.names = FALSE)
 
@@ -84,45 +131,10 @@ poly_data <- bind_rows(lapply(seq_len(nrow(wedges)), function(i) {
          x = c(w$r1 * sin(a), w$r0 * sin(rev(a))), y = c(w$r1 * cos(a), w$r0 * cos(rev(a))))
 }))
 
-text_on <- function(fill) ifelse(colSums(col2rgb(fill) * c(0.299, 0.587, 0.114)) / 255 < 0.55, "white", "grey15")
-radial <- function(df) {
-  df %>%
-    mutate(r = (r0 + r1) / 2, x = r * sin(mid * pi / 180), y = r * cos(mid * pi / 180),
-           angle = { phi <- ((90 - mid + 180) %% 360) - 180; ifelse(abs(phi) > 90, phi + 180, phi) },
-           colour = text_on(fill))
-}
 subtype_names <- c("MYCN/ID2 amplified" = "MYCN/ID2 amp")
 
 origin_labels <- radial(wedges %>% filter(ring == 2) %>% mutate(label = as.character(origin)))
 subtype_labels <- radial(wedges %>% filter(ring == 3) %>% mutate(label = recode(subtype, !!!subtype_names)))
-
-# ---- text measurement (approximate Helvetica character widths in em) ----
-upi <- 1.75   # plot units per inch: sets the text size relative to the rings
-em_widths <- setNames(c(556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278,
-                        556, 500, 722, 500, 500, 500,
-                        667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611,
-                        722, 667, 944, 667, 667, 611, 278, 333, 333, 584) / 1000,
-                      c(letters, LETTERS, " ", "(", ")", "="))
-char_em <- function(ch) { w <- unname(em_widths[ch]); w[is.na(w)] <- 0.556; w }   # digits and others: 0.556 em
-em_units <- function(size_mm) size_mm * 2.845 / 72 * upi                           # one em in plot units
-text_units <- function(label, size_mm, bold = FALSE) {                              # width of the longest line
-  max(sapply(strsplit(label, "\n")[[1]], function(l) sum(char_em(strsplit(l, "")[[1]])))) *
-    (if (bold) 1.06 else 1) * em_units(size_mm)
-}
-
-# text along a circle of radius r, centred on angle `mid` (degrees clockwise from 12 o'clock); in the bottom half
-# the text runs against the clock so that it stays upright
-curved_text <- function(label, r, mid = 0, size_mm = 3.9, bold = TRUE) {
-  chars <- strsplit(label, "")[[1]]
-  em <- em_units(size_mm)
-  w <- char_em(chars) * (if (bold) 1.06 else 1) * em
-  offset <- cumsum(w) - w / 2 - sum(w) / 2       # distance of each character's centre from the middle of the text
-  flip <- cos(mid * pi / 180) < 0
-  theta <- mid + (if (flip) -offset else offset) / r * 180 / pi
-  r_base <- if (flip) r + 0.36 * em else r - 0.36 * em   # baseline radius, so capital letters are centred on r
-  data.frame(char = chars, x = r_base * sin(theta * pi / 180), y = r_base * cos(theta * pi / 180),
-             angle = if (flip) 180 - theta else -theta)
-}
 
 # ---- ring names: in the gap just outside each ring, centred on 12 o'clock ----
 ring_label_size <- 4.9                           # text size (mm): larger than the site names, so the rings are easy to identify
@@ -135,10 +147,6 @@ band_r0 <- r_out + ring_gap
 band_r1 <- band_r0 + band_width
 band_r <- (band_r0 + band_r1) / 2
 band_text_size <- 3.6
-arc_polygon <- function(id, r0, r1, start, end, fill) {
-  a <- seq(start, end, length.out = max(2, ceiling((end - start) / 2)) + 1) * pi / 180
-  tibble(id = id, fill = fill, x = c(r1 * sin(a), r0 * sin(rev(a))), y = c(r1 * cos(a), r0 * cos(rev(a))))
-}
 sites <- wedges %>%
   filter(ring == 1) %>%
   mutate(label = paste0(str_remove(site, " lines$"), " (n=", round(w), ")"),   # "Normal reference lines" -> "Normal reference"

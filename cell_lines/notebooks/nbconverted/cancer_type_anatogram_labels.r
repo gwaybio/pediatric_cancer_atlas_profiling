@@ -10,6 +10,15 @@ categories_file <- file.path("..", "plotting_helpers", "cancer_type_categories.y
 output_dir <- "figures"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
+# wrap to as few lines as fit max_width, then to the narrowest width that still gives that many lines (balanced lines)
+balanced_wrap <- function(x, max_width) {
+  n_lines <- str_count(str_wrap(x, width = max_width), "\n") + 1
+  for (w in seq(10, max_width)) {
+    wrapped <- str_wrap(x, width = w)
+    if (str_count(wrapped, "\n") + 1 == n_lines) return(wrapped)
+  }
+}
+
 atlas <- prepare_cancer_type_data(metadata_file, categories_file)
 group_counts <- atlas$group_counts
 site_counts <- atlas$site_counts
@@ -34,15 +43,6 @@ units_per_inch <- 21   # plot units per inch: sets the text size relative to the
 margin_pt <- 4         # white margin around the figure
 caption_size <- 19     # font size (pt) of the atlas label centred under the figure; it adds to the figure height
 caption_gap <- 6       # pt between the panel and the label
-
-# wrap to as few lines as fit max_width, then to the narrowest width that still gives that many lines (balanced lines)
-balanced_wrap <- function(x, max_width) {
-  n_lines <- str_count(str_wrap(x, width = max_width), "\n") + 1
-  for (w in seq(10, max_width)) {
-    wrapped <- str_wrap(x, width = w)
-    if (str_count(wrapped, "\n") + 1 == n_lines) return(wrapped)
-  }
-}
 
 body <- body_extent()
 text_x <- body$xlim[2] + gap_to_text
